@@ -24,7 +24,7 @@ public class UpdateStateByKey {
                 .setMaster("local");
         JavaStreamingContext jssc = new JavaStreamingContext(
                 conf, Durations.seconds(5));
-        //必须设置检查点
+        //UpdateStateByKey必须设置检查点
         jssc.checkpoint("hdfs://192.168.1.105:9000/streaming_checkpoint");
 
 

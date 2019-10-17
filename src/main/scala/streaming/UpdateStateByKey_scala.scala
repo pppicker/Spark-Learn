@@ -10,7 +10,7 @@ object UpdateStateByKey_scala {
   def main(args: Array[String]): Unit = {
 
     val conf = new SparkConf()
-      .setAppName("streaming.UpdateStateByKey")
+      .setAppName("UpdateStateByKey")
       .setMaster("local")
     val ssc = new StreamingContext(conf,Seconds(5))
     ssc.checkpoint(".")
