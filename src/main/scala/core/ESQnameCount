@@ -1,0 +1,115 @@
+package com.hikvision.spark
+
+import com.hikvision.utils.SparkUtils
+import org.apache.spark.api.java.JavaRDD
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.{DataFrame, Row, SaveMode, SparkSession}
+import org.apache.spark.sql.types.{LongType, StringType, StructField, StructType}
+
+import java.util
+import java.util.Properties
+
+object ESQnameCount {
+
+  def main(args: Array[String]): Unit = {
+
+    val spark: SparkSession = SparkUtils.getSparkSqlSession(this.getClass.getName)
+    val sc = spark.sparkContext
+    spark.conf.set("spark.debug.maxToStringFields", "100")
+    //设置日志级别
+    sc.setLogLevel("WARN")
+
+
+    val conn_prop = new Properties()
+    conn_prop.put("user", "bw_user")
+    conn_prop.put("password", "6s0pg0d#")
+    conn_prop.put("driver", "org.postgresql.Driver")
+    //连接pg库，将properties参数和待查询的表一并传入，生成结果dataframe
+    val esCountDF = spark.read.jdbc(url = "jdbc:postgresql://10.1.183.21:5432/hikit", table = "network_security.es_qname_count", conn_prop)
+    println("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    println("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+    println("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
+
+    //    val esCountDF = spark.read
+    //      .format("jdbc")
+    //      .option("url", "jdbc:postgresql://10.1.183.21:5432/hikit")
+    //      .option("dbtable", "network_security.es_qname_count")
+    //      .option("user", "bw_user")
+    //      .option("password", "6s0pg0d#")
+    //      .load()
+
+    //连接pg库，将properties参数和待查询的表一并传入，生成结果dataframe
+    val whiteListDF = spark.read.jdbc(url = "jdbc:postgresql://10.1.183.21:5432/hikit", table = "network_security.wb_whitelist", conn_prop)
+
+    //    val whiteListDF = spark.read
+    //      .format("jdbc")
+    //      .option("url", "jdbc:postgresql://10.1.183.21:5432/hikit")
+    //      .option("dbtable", "network_security.wb_whitelist")
+    //      .option("user", "bw_user")
+    //      .option("password", "6s0pg0d#")
+    //      .load()
+
+    val mapsPg = Map(
+      "url" -> "jdbc:postgresql://10.1.183.21:5432/hikit",
+      "user" -> "bw_user",
+      "password" -> "6s0pg0d#",
+      "dbschema" -> "network_security",
+      "dbtable" -> "es_qname_count_filter",
+      "isolationLevel" -> "NONE",
+      "driver" -> "org.postgresql.Driver"
+    )
+
+    import spark.implicits._
+
+    val esCountRDD: JavaRDD[(String, Long)] = esCountDF.toJavaRDD.map(x => (x.getString(0), x.getLong(1)))
+    println(esCountRDD.collect().size())
+    //    val esCountRDD: JavaRDD[(String,Long)] = esCountDF.toJavaRDD.map(_.toString().split(",")).map(x=>(x(0),x(1).toLong))
+    val whiteListRDD: JavaRDD[Row] = whiteListDF.toJavaRDD
+    println(whiteListRDD.collect().size())
+
+    val whiteList: util.List[Row] = whiteListRDD.collect()
+    val filteredRDD: JavaRDD[(String, Long)] = esCountRDD.filter(esCountRDD => {
+      var contains_flag = true
+      whiteList.forEach(white => {
+        contains_flag = true
+        contains_flag = esCountRDD._1.contains(white.toString())
+      })
+      !contains_flag
+    })
+
+    val structSchema: StructType = StructType(
+      List(
+        StructField("qname", StringType, true),
+        StructField("count", LongType, true)
+      )
+    )
+    //将rdd映射到rowrdd上,注意将数据格式化为相应的类型
+    val structRow: RDD[Row] = filteredRDD.map(line => Row(line._1, line._2))
+    //创建dataframe
+    val resultDF: DataFrame = spark.createDataFrame(structRow, structSchema)
+
+    println(resultDF.toJavaRDD.collect().size())
+
+    //    val escountRow: RDD[escount] = filteredRDD.map(x => escount(
+    //      x._1, x._2))
+    //    //创建dataframe
+    //    val resultDF: DataFrame = spark.createDataFrame(escountRow)
+
+
+    //    '${date_str}'
+    //    val resultDF: DataFrame = spark.sql(
+    //      """
+    //        |select * from ods_mes_hz.workshop
+    //        |""".stripMargin)
+    //    spark.sqlContext.setConf()
+
+    resultDF.write
+      .mode(SaveMode.Append)
+      .format("jdbc")
+      .options(mapsPg)
+      .save()
+
+    spark.stop()
+  }
+
+}
